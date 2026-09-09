@@ -1,0 +1,94 @@
+services:
+
+  kestra-db:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: kestra
+      POSTGRES_PASSWORD: kestra
+      POSTGRES_DB: kestra
+    ports:
+      - "5440:5432"
+    volumes:
+      - kestra-db-data:/var/lib/postgresql/data
+
+  data-warehouse:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: ${WAREHOUSE_USER}
+      POSTGRES_PASSWORD: ${WAREHOUSE_PASSWORD}
+      POSTGRES_DB: ${WAREHOUSE_DB}
+    ports:
+      - "5441:5432"
+    volumes:
+      - warehouse-data:/var/lib/postgresql/data
+
+  warehouse-ui:
+    image: dpage/pgadmin4
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL}
+      PGADMIN_DEFAULT_PASSWORD: ${PG_PASSWORD}
+    ports:
+      - "8080:80"
+    depends_on:
+      - data-warehouse
+    volumes:
+      - warehouse-ui-data:/var/lib/pgadmin
+
+  kestra:
+    image: kestra/kestra:latest
+    user: "root"
+    command: ["server", "standalone"]
+
+    ports:
+      - "8081:8080"
+
+    environment:
+      ENV_WAREHOUSE_HOST: data-warehouse
+      ENV_WAREHOUSE_DB: ${WAREHOUSE_DB}
+      ENV_WAREHOUSE_USER: ${WAREHOUSE_USER}
+      ENV_WAREHOUSE_PASSWORD: ${WAREHOUSE_PASSWORD}
+
+      KESTRA_CONFIGURATION: |
+        datasources:
+          postgres:
+            url: jdbc:postgresql://kestra-db:5432/kestra
+            username: kestra
+            password: kestra
+            driver: org.postgresql.Driver
+
+        kestra:
+          server:
+            basic-auth:
+              username: alijoso@outlook.es
+              password: Strongpass1
+              enabled: false
+
+          repository:
+            type: postgres
+
+          queue:
+            type: postgres
+
+          storage:
+            type: local
+            local:
+              base-path: /app/storage
+
+          tasks:
+            tmp-dir:
+              path: /tmp/kestra-wd/tmp
+
+          url: http://localhost:8081
+
+    volumes:
+      - kestra-storage:/app/storage
+
+    depends_on:
+      - kestra-db
+
+
+volumes:
+  warehouse-data:
+  warehouse-ui-data:
+  kestra-db-data:
+  kestra-storage:
