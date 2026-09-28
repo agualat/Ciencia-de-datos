@@ -1,0 +1,9 @@
+payment_type_id,payment_type_name,payment_type_description
+0,Flex Fare trip,Viaje con tarifa flexible
+1,Credit card,Tarjeta de crédito
+2,Cash,Efectivo
+3,No charge,Sin cargo
+4,Dispute,Disputa
+5,Unknown,Desconocido según TLC
+6,Voided trip,Viaje anulado
+-1,Not reported,Código fuera del diccionario de TLC

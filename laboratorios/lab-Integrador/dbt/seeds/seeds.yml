@@ -1,0 +1,26 @@
+version: 2
+
+seeds:
+  - name: vendors
+    description: Proveedores de tecnología (TPEP) según el diccionario de datos de TLC. -1 es el miembro desconocido.
+    config:
+      column_types: {vendor_id: number, vendor_name: varchar}
+    columns:
+      - name: vendor_id
+        data_tests: [unique, not_null]
+
+  - name: payment_types
+    description: Formas de pago según el diccionario de datos de TLC. -1 es el miembro desconocido.
+    config:
+      column_types: {payment_type_id: number, payment_type_name: varchar, payment_type_description: varchar}
+    columns:
+      - name: payment_type_id
+        data_tests: [unique, not_null]
+
+  - name: rate_codes
+    description: Códigos de tarifa según el diccionario de datos de TLC. -1 es el miembro desconocido.
+    config:
+      column_types: {rate_code_id: number, rate_code_name: varchar, rate_code_description: varchar}
+    columns:
+      - name: rate_code_id
+        data_tests: [unique, not_null]

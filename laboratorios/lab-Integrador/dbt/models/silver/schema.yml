@@ -1,0 +1,74 @@
+version: 2
+
+models:
+  - name: stg_yellow_taxi_trips
+    description: >
+      Vista que tipa y estandariza Bronze. Cada fila lleva dq_issue con la primera
+      regla de calidad que incumple, o null si es válida.
+    columns:
+      - name: has_invalid_numeric
+        description: Indica que un valor numérico presente no pudo convertirse.
+      - name: dq_issue
+        description: Primera regla de calidad incumplida; incluye invalid_numeric.
+
+  - name: silver_yellow_taxi_trips
+    description: >
+      Viajes válidos, tipados y sin duplicados. Decisiones de limpieza:
+      (1) Tipos: los campos del VARIANT se convierten a TIMESTAMP_NTZ, NUMBER y BOOLEAN.
+      (2) Nombres: snake_case y sufijos de unidad (_amount, _miles, _minutes).
+      (3) Nulos: rate_code_id nulo pasa a 99 (código "Null/unknown" de TLC);
+      passenger_count 0 pasa a null porque no representa un viaje sin pasajeros sino un dato no capturado;
+      los recargos nulos pasan a 0 porque son componentes aditivos de total_amount.
+      (4) Duplicados: trip_id es un hash del contenido del viaje; si se repite, se conserva la primera carga.
+      (5) Inválidos: se excluyen y se guardan en silver_yellow_taxi_trips_rejected.
+    columns:
+      - name: trip_id
+        description: Hash del contenido del viaje.
+        data_tests: [unique, not_null]
+      - name: pickup_datetime
+        data_tests: [not_null]
+      - name: dropoff_datetime
+        data_tests: [not_null]
+      - name: pickup_location_id
+        data_tests: [not_null]
+      - name: dropoff_location_id
+        data_tests: [not_null]
+      - name: rate_code_id
+        data_tests: [not_null]
+      - name: total_amount
+        data_tests: [not_null]
+      - name: source_month
+        description: Mes del archivo de origen (YYYY-MM).
+        data_tests: [not_null]
+      - name: loaded_at
+        description: Fecha de carga en Bronze.
+        data_tests: [not_null]
+
+  - name: silver_yellow_taxi_trips_rejected
+    description: Registros de Bronze que no pasaron las reglas de calidad. Se conservan para auditoría.
+    columns:
+      - name: source_record_id
+        data_tests: [unique, not_null]
+      - name: dq_issue
+        description: Primera regla incumplida.
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values:
+                  - invalid_numeric
+                  - missing_timestamp
+                  - pickup_outside_source_month
+                  - non_positive_duration
+                  - duration_over_24h
+                  - invalid_location
+                  - invalid_distance
+                  - distance_over_500_miles
+                  - missing_amount
+                  - negative_amount
+
+  - name: silver_taxi_zones
+    description: Catálogo de zonas de TLC con nombres normalizados.
+    columns:
+      - name: location_id
+        data_tests: [unique, not_null]

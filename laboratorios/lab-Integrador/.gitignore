@@ -1,0 +1,11 @@
+.env_encoded
+.env
+.snowflake_private_key.pem
+.snowflake_public_key.pem
+.snowflake_register_key.sql
+.snowflake_grant_role.sql
+dbt/target/
+dbt/logs/
+dbt/dbt_packages/
+dbt/.user.yml
+.DS_Store

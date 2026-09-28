@@ -1,0 +1,102 @@
+version: 2
+
+models:
+  - name: fct_trips
+    description: Tabla de hechos. Grano = un viaje válido de NYC Yellow Taxi.
+    columns:
+      - name: trip_id
+        description: Primary key del viaje (hash del contenido).
+        data_tests: [unique, not_null]
+      - name: pickup_date_key
+        data_tests:
+          - not_null
+          - relationships:
+              arguments: {to: ref('dim_date'), field: date_key}
+      - name: pickup_time_key
+        data_tests:
+          - not_null
+          - relationships:
+              arguments: {to: ref('dim_time'), field: time_key}
+      - name: dropoff_date_key
+        data_tests:
+          - not_null
+          - relationships:
+              arguments: {to: ref('dim_date'), field: date_key}
+      - name: dropoff_time_key
+        data_tests:
+          - not_null
+          - relationships:
+              arguments: {to: ref('dim_time'), field: time_key}
+      - name: pickup_location_id
+        data_tests:
+          - not_null
+          - relationships:
+              arguments: {to: ref('dim_zone'), field: location_id}
+      - name: dropoff_location_id
+        data_tests:
+          - not_null
+          - relationships:
+              arguments: {to: ref('dim_zone'), field: location_id}
+      - name: vendor_id
+        data_tests:
+          - not_null
+          - relationships:
+              arguments: {to: ref('dim_vendor'), field: vendor_id}
+      - name: payment_type_id
+        data_tests:
+          - not_null
+          - relationships:
+              arguments: {to: ref('dim_payment_type'), field: payment_type_id}
+      - name: rate_code_id
+        data_tests:
+          - not_null
+          - relationships:
+              arguments: {to: ref('dim_rate_code'), field: rate_code_id}
+      - name: trip_distance_miles
+        description: Distancia del viaje en millas.
+        data_tests: [not_null]
+      - name: trip_duration_minutes
+        description: Minutos entre la subida y la bajada.
+        data_tests: [not_null]
+      - name: total_amount
+        description: Monto total cobrado (USD).
+        data_tests: [not_null]
+
+  - name: dim_date
+    description: Calendario. Una fila por día.
+    columns:
+      - name: date_key
+        description: Primary key con formato YYYYMMDD.
+        data_tests: [unique, not_null]
+
+  - name: dim_time
+    description: Hora del día. Una fila por minuto.
+    columns:
+      - name: time_key
+        description: Primary key con formato HHMM.
+        data_tests: [unique, not_null]
+
+  - name: dim_zone
+    description: Zonas de taxi de TLC. Se usa como zona de subida y de bajada.
+    columns:
+      - name: location_id
+        description: Primary key (LocationID de TLC).
+        data_tests: [unique, not_null]
+
+  - name: dim_vendor
+    columns:
+      - name: vendor_id
+        description: Primary key.
+        data_tests: [unique, not_null]
+
+  - name: dim_payment_type
+    columns:
+      - name: payment_type_id
+        description: Primary key.
+        data_tests: [unique, not_null]
+
+  - name: dim_rate_code
+    columns:
+      - name: rate_code_id
+        description: Primary key.
+        data_tests: [unique, not_null]

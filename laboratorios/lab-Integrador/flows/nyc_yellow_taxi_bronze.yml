@@ -1,0 +1,197 @@
+id: nyc_yellow_taxi_bronze
+namespace: laboratorio.integrador
+description: Descarga los archivos mensuales de NYC Yellow Taxi y los carga en Bronze de Snowflake sin duplicar filas al reejecutar.
+
+inputs:
+  - id: start_month
+    type: DATE
+    displayName: Desde
+    description: Primer mes a cargar. Solo importan el año y el mes; el día se ignora.
+    defaults: "2025-01-01"
+
+  - id: end_month
+    type: DATE
+    displayName: Hasta
+    description: Último mes a cargar (incluido). Solo importan el año y el mes. Usar 2026-08 cuando TLC lo publique.
+    defaults: "2026-07-01"
+
+tasks:
+  - id: validate_range
+    type: io.kestra.plugin.core.flow.If
+    condition: "{{ (inputs.end_month | date('yyyyMM') | number) < (inputs.start_month | date('yyyyMM') | number) }}"
+    then:
+      - id: invalid_range
+        type: io.kestra.plugin.core.execution.Fail
+        errorMessage: "El mes final ({{ inputs.end_month | date('yyyy-MM') }}) es anterior al inicial ({{ inputs.start_month | date('yyyy-MM') }})."
+
+  # Genera ["YYYY-MM", ...] con todos los meses del rango, ambos extremos incluidos.
+  - id: month_list
+    type: io.kestra.plugin.core.debug.Return
+    format: >-
+      {%- set months = (inputs.end_month | date('yyyy') | number) * 12 + (inputs.end_month | date('M') | number)
+        - (inputs.start_month | date('yyyy') | number) * 12 - (inputs.start_month | date('M') | number) -%}
+      [{%- for i in range(0, months) -%}
+      "{{ inputs.start_month | dateAdd(i, 'MONTHS') | date('yyyy-MM') }}"{% if not loop.last %},{% endif %}
+      {%- endfor -%}]
+
+  - id: create_bronze_schema
+    type: io.kestra.plugin.jdbc.snowflake.Query
+    url: "jdbc:snowflake://{{ secret('SNOWFLAKE_ACCOUNT') }}.snowflakecomputing.com"
+    username: "{{ secret('SNOWFLAKE_USERNAME') }}"
+    privateKey: "{{ secret('SNOWFLAKE_PRIVATE_KEY') }}"
+    privateKeyPassword: "{{ secret('SNOWFLAKE_PRIVATE_KEY_PASSWORD') }}"
+    warehouse: "{{ secret('SNOWFLAKE_WAREHOUSE') }}"
+    database: "{{ secret('SNOWFLAKE_DATABASE') }}"
+    role: "{{ secret('SNOWFLAKE_ROLE') }}"
+    sql: "CREATE SCHEMA IF NOT EXISTS {{ secret('SNOWFLAKE_DATABASE') }}.BRONZE"
+
+  - id: create_parquet_format
+    type: io.kestra.plugin.jdbc.snowflake.Query
+    url: "jdbc:snowflake://{{ secret('SNOWFLAKE_ACCOUNT') }}.snowflakecomputing.com"
+    username: "{{ secret('SNOWFLAKE_USERNAME') }}"
+    privateKey: "{{ secret('SNOWFLAKE_PRIVATE_KEY') }}"
+    privateKeyPassword: "{{ secret('SNOWFLAKE_PRIVATE_KEY_PASSWORD') }}"
+    warehouse: "{{ secret('SNOWFLAKE_WAREHOUSE') }}"
+    database: "{{ secret('SNOWFLAKE_DATABASE') }}"
+    role: "{{ secret('SNOWFLAKE_ROLE') }}"
+    sql: "CREATE FILE FORMAT IF NOT EXISTS {{ secret('SNOWFLAKE_DATABASE') }}.BRONZE.TAXI_PARQUET_FORMAT TYPE = PARQUET"
+
+  - id: create_parquet_stage
+    type: io.kestra.plugin.jdbc.snowflake.Query
+    url: "jdbc:snowflake://{{ secret('SNOWFLAKE_ACCOUNT') }}.snowflakecomputing.com"
+    username: "{{ secret('SNOWFLAKE_USERNAME') }}"
+    privateKey: "{{ secret('SNOWFLAKE_PRIVATE_KEY') }}"
+    privateKeyPassword: "{{ secret('SNOWFLAKE_PRIVATE_KEY_PASSWORD') }}"
+    warehouse: "{{ secret('SNOWFLAKE_WAREHOUSE') }}"
+    database: "{{ secret('SNOWFLAKE_DATABASE') }}"
+    role: "{{ secret('SNOWFLAKE_ROLE') }}"
+    sql: "CREATE STAGE IF NOT EXISTS {{ secret('SNOWFLAKE_DATABASE') }}.BRONZE.TAXI_PARQUET_STAGE FILE_FORMAT = {{ secret('SNOWFLAKE_DATABASE') }}.BRONZE.TAXI_PARQUET_FORMAT"
+
+  - id: create_bronze_table
+    type: io.kestra.plugin.jdbc.snowflake.Query
+    url: "jdbc:snowflake://{{ secret('SNOWFLAKE_ACCOUNT') }}.snowflakecomputing.com"
+    username: "{{ secret('SNOWFLAKE_USERNAME') }}"
+    privateKey: "{{ secret('SNOWFLAKE_PRIVATE_KEY') }}"
+    privateKeyPassword: "{{ secret('SNOWFLAKE_PRIVATE_KEY_PASSWORD') }}"
+    warehouse: "{{ secret('SNOWFLAKE_WAREHOUSE') }}"
+    database: "{{ secret('SNOWFLAKE_DATABASE') }}"
+    role: "{{ secret('SNOWFLAKE_ROLE') }}"
+    sql: |
+      CREATE TABLE IF NOT EXISTS {{ secret('SNOWFLAKE_DATABASE') }}.BRONZE.YELLOW_TAXI_TRIPS (
+        RAW_RECORD VARIANT,
+        SOURCE_MONTH VARCHAR(7),
+        SOURCE_FILE VARCHAR(500),
+        FILE_ROW_NUMBER NUMBER,
+        LOADED_AT TIMESTAMP_LTZ DEFAULT CURRENT_TIMESTAMP()
+      )
+
+  - id: create_csv_format
+    type: io.kestra.plugin.jdbc.snowflake.Query
+    url: "jdbc:snowflake://{{ secret('SNOWFLAKE_ACCOUNT') }}.snowflakecomputing.com"
+    username: "{{ secret('SNOWFLAKE_USERNAME') }}"
+    privateKey: "{{ secret('SNOWFLAKE_PRIVATE_KEY') }}"
+    privateKeyPassword: "{{ secret('SNOWFLAKE_PRIVATE_KEY_PASSWORD') }}"
+    warehouse: "{{ secret('SNOWFLAKE_WAREHOUSE') }}"
+    database: "{{ secret('SNOWFLAKE_DATABASE') }}"
+    role: "{{ secret('SNOWFLAKE_ROLE') }}"
+    sql: "CREATE FILE FORMAT IF NOT EXISTS {{ secret('SNOWFLAKE_DATABASE') }}.BRONZE.TAXI_CSV_FORMAT TYPE = CSV SKIP_HEADER = 1 FIELD_OPTIONALLY_ENCLOSED_BY = '\"'"
+
+  - id: download_zone_lookup
+    type: io.kestra.plugin.core.http.Download
+    uri: "https://d37ci6vzurychx.cloudfront.net/misc/taxi_zone_lookup.csv"
+    saveAs: "taxi_zone_lookup.csv"
+
+  - id: upload_zone_lookup
+    type: io.kestra.plugin.jdbc.snowflake.Upload
+    url: "jdbc:snowflake://{{ secret('SNOWFLAKE_ACCOUNT') }}.snowflakecomputing.com"
+    username: "{{ secret('SNOWFLAKE_USERNAME') }}"
+    privateKey: "{{ secret('SNOWFLAKE_PRIVATE_KEY') }}"
+    privateKeyPassword: "{{ secret('SNOWFLAKE_PRIVATE_KEY_PASSWORD') }}"
+    warehouse: "{{ secret('SNOWFLAKE_WAREHOUSE') }}"
+    database: "{{ secret('SNOWFLAKE_DATABASE') }}"
+    role: "{{ secret('SNOWFLAKE_ROLE') }}"
+    from: "{{ outputs.download_zone_lookup.uri }}"
+    stageName: "@{{ secret('SNOWFLAKE_DATABASE') }}.BRONZE.TAXI_PARQUET_STAGE"
+    prefix: "reference"
+    fileName: "taxi_zone_lookup.csv"
+    compress: false
+
+  - id: load_zone_lookup
+    type: io.kestra.plugin.jdbc.snowflake.Query
+    url: "jdbc:snowflake://{{ secret('SNOWFLAKE_ACCOUNT') }}.snowflakecomputing.com"
+    username: "{{ secret('SNOWFLAKE_USERNAME') }}"
+    privateKey: "{{ secret('SNOWFLAKE_PRIVATE_KEY') }}"
+    privateKeyPassword: "{{ secret('SNOWFLAKE_PRIVATE_KEY_PASSWORD') }}"
+    warehouse: "{{ secret('SNOWFLAKE_WAREHOUSE') }}"
+    database: "{{ secret('SNOWFLAKE_DATABASE') }}"
+    role: "{{ secret('SNOWFLAKE_ROLE') }}"
+    # Catálogo pequeño: se reemplaza completo en cada ejecución, así nunca se duplica.
+    sql: |
+      CREATE OR REPLACE TABLE {{ secret('SNOWFLAKE_DATABASE') }}.BRONZE.TAXI_ZONE_LOOKUP AS
+      SELECT
+        $1::VARCHAR AS LOCATION_ID,
+        $2::VARCHAR AS BOROUGH,
+        $3::VARCHAR AS ZONE,
+        $4::VARCHAR AS SERVICE_ZONE,
+        METADATA$FILENAME AS SOURCE_FILE,
+        CURRENT_TIMESTAMP() AS LOADED_AT
+      FROM @{{ secret('SNOWFLAKE_DATABASE') }}.BRONZE.TAXI_PARQUET_STAGE/reference/taxi_zone_lookup.csv
+        (FILE_FORMAT => '{{ secret('SNOWFLAKE_DATABASE') }}.BRONZE.TAXI_CSV_FORMAT')
+
+  - id: ingest_months
+    type: io.kestra.plugin.core.flow.Loop
+    values: "{{ outputs.month_list.value }}"
+    # Meses procesados a la vez. Cada mes usa su propio archivo, así que no chocan.
+    concurrencyLimit: 4
+    tasks:
+      - id: download_parquet
+        type: io.kestra.plugin.core.http.Download
+        uri: "https://d37ci6vzurychx.cloudfront.net/trip-data/yellow_tripdata_{{ item.value }}.parquet"
+        saveAs: "yellow_tripdata_{{ item.value }}.parquet"
+
+      - id: upload_to_snowflake_stage
+        type: io.kestra.plugin.jdbc.snowflake.Upload
+        url: "jdbc:snowflake://{{ secret('SNOWFLAKE_ACCOUNT') }}.snowflakecomputing.com"
+        username: "{{ secret('SNOWFLAKE_USERNAME') }}"
+        privateKey: "{{ secret('SNOWFLAKE_PRIVATE_KEY') }}"
+        privateKeyPassword: "{{ secret('SNOWFLAKE_PRIVATE_KEY_PASSWORD') }}"
+        warehouse: "{{ secret('SNOWFLAKE_WAREHOUSE') }}"
+        database: "{{ secret('SNOWFLAKE_DATABASE') }}"
+        role: "{{ secret('SNOWFLAKE_ROLE') }}"
+        from: "{{ outputs.download_parquet.uri }}"
+        stageName: "@{{ secret('SNOWFLAKE_DATABASE') }}.BRONZE.TAXI_PARQUET_STAGE"
+        prefix: "{{ item.value }}"
+        fileName: "yellow_tripdata_{{ item.value }}.parquet"
+        compress: false
+
+      - id: insert_bronze
+        type: io.kestra.plugin.jdbc.snowflake.Query
+        url: "jdbc:snowflake://{{ secret('SNOWFLAKE_ACCOUNT') }}.snowflakecomputing.com"
+        username: "{{ secret('SNOWFLAKE_USERNAME') }}"
+        privateKey: "{{ secret('SNOWFLAKE_PRIVATE_KEY') }}"
+        privateKeyPassword: "{{ secret('SNOWFLAKE_PRIVATE_KEY_PASSWORD') }}"
+        warehouse: "{{ secret('SNOWFLAKE_WAREHOUSE') }}"
+        database: "{{ secret('SNOWFLAKE_DATABASE') }}"
+        role: "{{ secret('SNOWFLAKE_ROLE') }}"
+        # INSERT con anti-join en vez de MERGE: Snowflake ejecuta varios INSERT a la vez
+        # sobre la misma tabla, mientras que los MERGE se bloquean entre sí.
+        # Una fila ya cargada (mismo archivo y número de fila) no se vuelve a insertar.
+        sql: |
+          INSERT INTO {{ secret('SNOWFLAKE_DATABASE') }}.BRONZE.YELLOW_TAXI_TRIPS
+            (RAW_RECORD, SOURCE_MONTH, SOURCE_FILE, FILE_ROW_NUMBER, LOADED_AT)
+          SELECT source.RAW_RECORD, source.SOURCE_MONTH, source.SOURCE_FILE, source.FILE_ROW_NUMBER, CURRENT_TIMESTAMP()
+          FROM (
+            SELECT
+              $1 AS RAW_RECORD,
+              '{{ item.value }}' AS SOURCE_MONTH,
+              METADATA$FILENAME AS SOURCE_FILE,
+              METADATA$FILE_ROW_NUMBER AS FILE_ROW_NUMBER
+            FROM @{{ secret('SNOWFLAKE_DATABASE') }}.BRONZE.TAXI_PARQUET_STAGE/{{ item.value }}/yellow_tripdata_{{ item.value }}.parquet
+              (FILE_FORMAT => '{{ secret('SNOWFLAKE_DATABASE') }}.BRONZE.TAXI_PARQUET_FORMAT')
+          ) AS source
+          WHERE NOT EXISTS (
+            SELECT 1
+            FROM {{ secret('SNOWFLAKE_DATABASE') }}.BRONZE.YELLOW_TAXI_TRIPS AS target
+            WHERE target.SOURCE_FILE = source.SOURCE_FILE
+              AND target.FILE_ROW_NUMBER = source.FILE_ROW_NUMBER
+          )

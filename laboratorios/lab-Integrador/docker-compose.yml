@@ -1,0 +1,70 @@
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: kestra
+      POSTGRES_USER: kestra
+      POSTGRES_PASSWORD: kestra_local
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kestra -d kestra"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  kestra:
+    image: kestra/kestra:latest
+    user: root
+    # Carga los flows de ./flows al arrancar (solo lectura: Kestra no escribe en la carpeta).
+    # Tras editar un flow: docker compose restart kestra
+    command: server standalone --flow-path /app/flows --no-tutorials
+    env_file:
+      - path: .env_encoded
+        required: false
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - kestra-data:/app/storage
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /tmp/kestra-wd:/tmp/kestra-wd
+      - ./flows:/app/flows:ro
+    environment:
+      KESTRA_CONFIGURATION: |
+        datasources:
+          postgres:
+            url: jdbc:postgresql://postgres:5432/kestra
+            driver-class-name: org.postgresql.Driver
+            username: kestra
+            password: kestra_local
+        kestra:
+          repository:
+            type: postgres
+          storage:
+            type: local
+            local:
+              base-path: /app/storage
+          queue:
+            type: postgres
+          tasks:
+            tmp-dir:
+              path: /tmp/kestra-wd/tmp
+          url: http://localhost:8080/
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # Solo se ejecuta bajo demanda: docker compose run --rm dbt build
+  dbt:
+    build: ./dbt
+    image: lab-integrador-dbt
+    profiles: ["dbt"]
+    env_file:
+      - path: .env_encoded
+        required: false
+    volumes:
+      - ./dbt:/usr/app/dbt
+
+volumes:
+  postgres-data:
+  kestra-data:

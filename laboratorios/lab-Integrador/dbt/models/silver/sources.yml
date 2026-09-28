@@ -1,0 +1,26 @@
+version: 2
+
+sources:
+  - name: bronze
+    description: Datos cargados por Kestra tal como vienen de TLC, más metadata de carga.
+    database: "{{ env_var('SNOWFLAKE_DATABASE') }}"
+    schema: BRONZE
+    tables:
+      - name: yellow_taxi_trips
+        identifier: YELLOW_TAXI_TRIPS
+        description: Una fila por registro de los Parquet mensuales de NYC Yellow Taxi.
+        columns:
+          - name: raw_record
+            description: Registro original del Parquet en VARIANT.
+          - name: source_month
+            description: Mes del archivo (YYYY-MM).
+          - name: source_file
+            description: Ruta del archivo en el stage.
+          - name: file_row_number
+            description: Número de fila dentro del archivo.
+          - name: loaded_at
+            description: Fecha y hora de carga en Bronze.
+
+      - name: taxi_zone_lookup
+        identifier: TAXI_ZONE_LOOKUP
+        description: Catálogo oficial de zonas de taxi de TLC (taxi_zone_lookup.csv).
